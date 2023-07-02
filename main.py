@@ -1,6 +1,7 @@
 import socket
 import ssl
 import tkinter
+import tkinter.font
 
 WIDTH, HEIGHT = 800, 600
 SCROLL_STEP = 100
@@ -25,41 +26,117 @@ class Browser:
 
     def draw(self):
         self.canvas.delete("all")
-        for x, y, c in self.display_list:
+        for x, y, c, font in self.display_list:
             if y > self.scroll + HEIGHT: continue
             if y + VSTEP < self.scroll: continue
-            self.canvas.create_text(x, y - self.scroll, text=c)
+            self.canvas.create_text(x, y - self.scroll, text=c, font=font, anchor="nw")
 
     def load(self, url):
         headers, body = request(url)
-        text = lex(body)
-        self.display_list = layout(text)
+        tokens = lex(body)
+        self.display_list = Layout(tokens).display_list
         self.draw()
 
 
-def layout(text):
-    display_list = []
-    cursor_x, cursor_y = HSTEP, VSTEP
-    for c in text:
-        display_list.append((cursor_x, cursor_y, c))
-        cursor_x += HSTEP
-        if cursor_x > WIDTH:
-            cursor_x = HSTEP
-            cursor_y += VSTEP
-    return display_list
+FONTS = {}
+
+def get_font(size, weight, slant):
+    key = (size, weight, slant)
+    if key not in FONTS:
+        font = tkinter.font.Font(size=size, weight=weight, slant=slant)
+        FONTS[key] = font
+    return FONTS[key]
+
+class Layout:
+    def __init__(self, tokens):
+        self.display_list = []
+        self.cursor_x = HSTEP
+        self.cursor_y = VSTEP
+        self.weight = "normal"
+        self.style = "roman"
+        self.size = 16
+        self.line = []
+        for tok in tokens:
+            self.token(tok)
+        self.flush()
+
+    def token(self, token):
+        if isinstance(token, Text):
+            self.text(token)
+        elif token.tag == "i":
+            self.style = "italic"
+        elif token.tag == "/i":
+            self.style = "roman"
+        elif token.tag == "b":
+            self.weight = "bold"
+        elif token.tag == "/b":
+            self.weight = "normal"
+        elif token.tag == "small":
+            self.size -= 2
+        elif token.tag == "/small":
+            self.size += 2
+        elif token.tag == "big":
+            self.size += 4
+        elif token.tag == "/big":
+            self.size -= 4
+        elif token.tag == "br":
+            self.flush()
+        elif token.tag == "/p":
+            self.flush()
+            self.cursor_y += VSTEP
+
+
+    def text(self, token):
+        font = get_font(self.size, self.weight, self.style)
+
+        for word in token.text.split():
+            self.line.append((self.cursor_x, word, font))
+            width = font.measure(word)
+            if self.cursor_x + width > WIDTH - HSTEP:
+                self.flush()
+
+            self.cursor_x += width + font.measure(" ")
+
+    def flush(self):
+        if not self.line: return
+        metrics = [font.metrics() for x, word, font in self.line]
+        max_ascent = max([metric['ascent'] for metric in metrics])
+        baseline = self.cursor_y + 1.25 * max_ascent
+        for x, word, font in self.line:
+            y = baseline - font.metrics("ascent")
+            self.display_list.append((x, y, word, font))
+        self.cursor_x = HSTEP
+        self.line = []
+        max_descent = max([metric["descent"] for metric in metrics])
+        self.cursor_y = baseline + 1.25 * max_descent
+
+class Text:
+    def __init__(self, text):
+        self.text = text
+
+class Tag:
+    def __init__(self, tag):
+        self.tag = tag
 
 
 def lex(body):
+    out = []
     text = ''
     in_angle = False
     for c in body:
         if c == "<":
             in_angle = True
+            if text: out.append(Text(text))
+            text = ''
         elif c == ">":
             in_angle = False
-        elif not in_angle:
+            out.append(Tag(text))
+            text = ''
+        else:
             text += c
-    return text
+    if not in_angle and text:
+        out.append(Text(text))
+    return out
 
 
 def request(url):
