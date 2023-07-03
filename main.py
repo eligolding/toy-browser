@@ -2,6 +2,7 @@ import socket
 import ssl
 import tkinter
 import tkinter.font
+from html_parser import HTMLParser, Text
 
 WIDTH, HEIGHT = 800, 600
 SCROLL_STEP = 100
@@ -33,8 +34,8 @@ class Browser:
 
     def load(self, url):
         headers, body = request(url)
-        tokens = lex(body)
-        self.display_list = Layout(tokens).display_list
+        self.nodes = HTMLParser(body).parse()
+        self.display_list = Layout(self.nodes).display_list
         self.draw()
 
 
@@ -48,7 +49,7 @@ def get_font(size, weight, slant):
     return FONTS[key]
 
 class Layout:
-    def __init__(self, tokens):
+    def __init__(self, nodes):
         self.display_list = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
@@ -56,45 +57,52 @@ class Layout:
         self.style = "roman"
         self.size = 16
         self.line = []
-        for tok in tokens:
-            self.token(tok)
+        self.recurse(nodes)
         self.flush()
 
-    def token(self, token):
-        if isinstance(token, Text):
-            self.text(token)
-        elif token.tag == "i":
+    def recurse(self, tree):
+        if isinstance(tree, Text):
+            self.text(tree)
+        else:
+            self.open_tag(tree.tag)
+            for child in tree.children:
+                self.recurse(child)
+            self.close_tag(tree.tag)
+
+    def open_tag(self, tag):
+        if tag == "i":
             self.style = "italic"
-        elif token.tag == "/i":
-            self.style = "roman"
-        elif token.tag == "b":
+        elif tag == "b":
             self.weight = "bold"
-        elif token.tag == "/b":
-            self.weight = "normal"
-        elif token.tag == "small":
+        elif tag == "small":
             self.size -= 2
-        elif token.tag == "/small":
-            self.size += 2
-        elif token.tag == "big":
+        elif tag == "big":
             self.size += 4
-        elif token.tag == "/big":
-            self.size -= 4
-        elif token.tag == "br":
+        elif tag == "br":
             self.flush()
-        elif token.tag == "/p":
+
+    def close_tag(self, tag):
+        if tag == "i":
+            self.style = "roman"
+        elif tag == "b":
+            self.weight = "normal"
+        elif tag == "small":
+            self.size += 2
+        elif tag == "big":
+            self.size -= 4
+        elif tag == "p":
             self.flush()
             self.cursor_y += VSTEP
-
 
     def text(self, token):
         font = get_font(self.size, self.weight, self.style)
 
         for word in token.text.split():
-            self.line.append((self.cursor_x, word, font))
             width = font.measure(word)
             if self.cursor_x + width > WIDTH - HSTEP:
                 self.flush()
 
+            self.line.append((self.cursor_x, word, font))
             self.cursor_x += width + font.measure(" ")
 
     def flush(self):
@@ -109,34 +117,6 @@ class Layout:
         self.line = []
         max_descent = max([metric["descent"] for metric in metrics])
         self.cursor_y = baseline + 1.25 * max_descent
-
-class Text:
-    def __init__(self, text):
-        self.text = text
-
-class Tag:
-    def __init__(self, tag):
-        self.tag = tag
-
-
-def lex(body):
-    out = []
-    text = ''
-    in_angle = False
-    for c in body:
-        if c == "<":
-            in_angle = True
-            if text: out.append(Text(text))
-            text = ''
-        elif c == ">":
-            in_angle = False
-            out.append(Tag(text))
-            text = ''
-        else:
-            text += c
-    if not in_angle and text:
-        out.append(Text(text))
-    return out
 
 
 def request(url):
@@ -189,10 +169,19 @@ def request(url):
     return headers, body
 
 
+def print_tree(node, indent=0):
+    print(" " * indent, node)
+    for child in node.children:
+        print_tree(child, indent + 2)
+
 if __name__ == "__main__":
     import sys
 
     Browser().load(sys.argv[1])
     tkinter.mainloop()
+
+    # headers, body = request(sys.argv[1])
+    # nodes = HTMLParser(body).parse()
+    # print_tree(nodes)
 
 # load('http://example.org/index.html')
