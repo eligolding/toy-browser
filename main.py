@@ -127,6 +127,18 @@ BLOCK_ELEMENTS = [
 ]
 
 
+def layout_mode(node):
+    if isinstance(node, Text):
+        return "inline"
+    elif node.children:
+        if any([isinstance(child, Element) and child.tag in BLOCK_ELEMENTS for child in node.children]):
+            return "block"
+        else:
+            return "inline"
+    else:
+        return "block"
+
+
 class BlockLayout:
     def __init__(self, node, parent, previous):
         self.node = node
@@ -147,17 +159,6 @@ class BlockLayout:
         for child in self.children:
             child.paint(display_list)
 
-    def layout_mode(self, node):
-        if isinstance(node, Text):
-            return "inline"
-        elif node.children:
-            if any([isinstance(child, Element) and child.tag in BLOCK_ELEMENTS for child in node.children]):
-                return "block"
-            else:
-                return "inline"
-        else:
-            return "block"
-
     def layout(self):
         self.x = self.parent.x
         if self.previous:
@@ -166,7 +167,7 @@ class BlockLayout:
             self.y = self.parent.y
         self.width = self.parent.width
 
-        mode = self.layout_mode(self.node)
+        mode = layout_mode(self.node)
         if mode == "block":
             previous = None
             for child in self.node.children:
@@ -193,14 +194,14 @@ class BlockLayout:
         else:
             self.height = self.cursor_y
 
-    def recurse(self, tree):
-        if isinstance(tree, Text):
-            self.text(tree)
+    def recurse(self, node):
+        if isinstance(node, Text):
+            self.text(node)
         else:
-            self.open_tag(tree.tag)
-            for child in tree.children:
+            self.open_tag(node.tag)
+            for child in node.children:
                 self.recurse(child)
-            self.close_tag(tree.tag)
+            self.close_tag(node.tag)
 
     def open_tag(self, tag):
         if tag == "i":
@@ -227,10 +228,10 @@ class BlockLayout:
             self.flush()
             self.cursor_y += VSTEP
 
-    def text(self, token):
+    def text(self, node):
         font = get_font(self.size, self.weight, self.style)
 
-        for word in token.text.split():
+        for word in node.text.split():
             width = font.measure(word)
             if self.cursor_x + width > self.width:
                 self.flush()
