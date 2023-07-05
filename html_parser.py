@@ -11,6 +11,7 @@ class Element:
     def __init__(self, tag, attributes, parent):
         self.tag = tag
         self.parent = parent
+        self.attributes = attributes
         self.children = []
 
     def __repr__(self):
