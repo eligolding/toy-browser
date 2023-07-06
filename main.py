@@ -8,39 +8,23 @@ WIDTH, HEIGHT = 800, 600
 SCROLL_STEP = 100
 HSTEP, VSTEP = 13, 18
 
-class Browser:
+class Tab:
     def __init__(self):
         self.url = None
-        self.window = tkinter.Tk()
-        self.canvas = tkinter.Canvas(
-            self.window,
-            bg="white",
-            width=WIDTH,
-            height=HEIGHT
-
-        )
-        self.canvas.pack()
         self.scroll = 0
-        self.window.bind("<Down>", self.scrolldown)
-        self.window.bind("<Up>", self.scrollup)
-        self.window.bind("<Button-1>", self.click)
-
         with open('browser.css') as f:
             self.default_style_sheet = CSSParser(f.read()).parse()
 
-    def scrolldown(self, e):
+    def scrolldown(self):
         max_y = self.document.height - HEIGHT
         self.scroll = min(self.scroll + SCROLL_STEP, max_y)
-        self.draw()
 
-    def scrollup(self, e):
+    def scrollup(self):
         self.scroll -= SCROLL_STEP
         if self.scroll < 0:
             self.scroll = 0
-        self.draw()
 
-    def click(self, e):
-        x, y = e.x, e.y
+    def click(self, x, y):
         y += self.scroll
 
         objs = [obj for obj in tree_to_list(self.document, [])
@@ -58,12 +42,11 @@ class Browser:
                 return self.load(url)
             elt = elt.parent
 
-    def draw(self):
-        self.canvas.delete("all")
+    def draw(self, canvas):
         for cmd in self.display_list:
             if cmd.top > self.scroll + HEIGHT: continue
             if cmd.bottom + VSTEP < self.scroll: continue
-            cmd.execute(self.scroll, self.canvas)
+            cmd.execute(self.scroll, canvas)
 
     def load(self, url):
         self.url = url
@@ -89,6 +72,48 @@ class Browser:
         self.document.layout()
         self.display_list = []
         self.document.paint(self.display_list)
+
+
+class Browser:
+    def __init__(self):
+        self.window = tkinter.Tk()
+        self.canvas = tkinter.Canvas(
+            self.window,
+            bg="white",
+            width=WIDTH,
+            height=HEIGHT
+
+        )
+        self.canvas.pack()
+
+        self.window.bind("<Down>", self.handle_down)
+        self.window.bind("<Up>", self.handle_up)
+        self.window.bind("<Button-1>", self.handle_click)
+
+        self.tabs = []
+        self.active_tab = None
+
+    def handle_down(self, e):
+        self.tabs[self.active_tab].scrolldown()
+        self.draw()
+
+    def handle_click(self, e):
+        self.tabs[self.active_tab].click(e.x, e.y)
+        self.draw()
+
+    def handle_up(self, e):
+        self.tabs[self.active_tab].scrollup()
+        self.draw()
+
+    def draw(self):
+        self.canvas.delete("all")
+        self.tabs[self.active_tab].draw(self.canvas)
+
+    def load(self, url):
+        new_tab = Tab()
+        new_tab.load(url)
+        self.active_tab = len(self.tabs)
+        self.tabs.append(new_tab)
         self.draw()
 
 
