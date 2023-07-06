@@ -10,6 +10,7 @@ HSTEP, VSTEP = 13, 18
 
 class Browser:
     def __init__(self):
+        self.url = None
         self.window = tkinter.Tk()
         self.canvas = tkinter.Canvas(
             self.window,
@@ -22,6 +23,7 @@ class Browser:
         self.scroll = 0
         self.window.bind("<Down>", self.scrolldown)
         self.window.bind("<Up>", self.scrollup)
+        self.window.bind("<Button-1>", self.click)
 
         with open('browser.css') as f:
             self.default_style_sheet = CSSParser(f.read()).parse()
@@ -37,6 +39,25 @@ class Browser:
             self.scroll = 0
         self.draw()
 
+    def click(self, e):
+        x, y = e.x, e.y
+        y += self.scroll
+
+        objs = [obj for obj in tree_to_list(self.document, [])
+                if obj.x <= x < obj.x + obj.width
+                and obj.y <= y < obj.y + obj.height]
+
+        if not objs: return
+        elt = objs[-1].node
+
+        while elt:
+            if isinstance(elt, Text):
+                pass
+            elif elt.tag == "a" and "href" in elt.attributes:
+                url = resolve_url(elt.attributes["href"], self.url)
+                return self.load(url)
+            elt = elt.parent
+
     def draw(self):
         self.canvas.delete("all")
         for cmd in self.display_list:
@@ -45,6 +66,7 @@ class Browser:
             cmd.execute(self.scroll, self.canvas)
 
     def load(self, url):
+        self.url = url
         headers, body = request(url)
         self.nodes = HTMLParser(body).parse()
         rules = self.default_style_sheet.copy()
@@ -219,39 +241,22 @@ class BlockLayout:
                 self.children.append(next)
                 previous = next
         else:
-            self.display_list = []
-            self.cursor_x = 0
-            self.cursor_y = 0
-            self.line = []
+            self.new_line()
             self.recurse(self.node)
-            self.flush()
 
         for child in self.children:
             child.layout()
 
         # height must be computed _after_ children layout
-        if mode == "block":
-            self.height = sum([child.height for child in self.children])
-        else:
-            self.height = self.cursor_y
+        self.height = sum([child.height for child in self.children])
 
     def recurse(self, node):
         if isinstance(node, Text):
             self.text(node)
         else:
-            self.open_tag(node.tag)
+            # todo: reimplement br and p tags
             for child in node.children:
                 self.recurse(child)
-            self.close_tag(node.tag)
-
-    def open_tag(self, tag):
-        if tag == "br":
-            self.flush()
-
-    def close_tag(self, tag):
-        if tag == "p":
-            self.flush()
-            self.cursor_y += VSTEP
 
     def get_font(self, node):
         weight = node.style['font-weight']
@@ -262,28 +267,84 @@ class BlockLayout:
 
     def text(self, node):
         font = self.get_font(node)
-        color = node.style["color"]
         for word in node.text.split():
             width = font.measure(word)
             if self.cursor_x + width > self.width:
-                self.flush()
+                self.new_line()
 
-            self.line.append((self.cursor_x, word, font, color))
+            line = self.children[-1]
+            text = TextLayout(node, word, line, self.previous_word)
+            line.children.append(text)
+            self.previous_word = text
+
             self.cursor_x += width + font.measure(" ")
 
-    def flush(self):
-        if not self.line: return
-        metrics = [font.metrics() for x, word, font, color in self.line]
-        max_ascent = max([metric['ascent'] for metric in metrics])
-        baseline = self.cursor_y + 1.25 * max_ascent
-        for rel_x, word, font, color in self.line:
-            x = rel_x + self.x
-            y = self.y + baseline - font.metrics("ascent")
-            self.display_list.append((x, y, word, font, color))
+    def new_line(self):
+        self.previous_word = None
         self.cursor_x = 0
-        self.line = []
-        max_descent = max([metric["descent"] for metric in metrics])
-        self.cursor_y = baseline + 1.25 * max_descent
+        last_line = self.children[-1] if self.children else None
+        new_line = LineLayout(self.node, self, last_line)
+        self.children.append(new_line)
+
+
+class LineLayout:
+    def __init__(self, node, parent, previous):
+        self.node = node
+        self.parent = parent
+        self.previous = previous
+        self.children = []
+
+    def layout(self):
+        self.width = self.parent.width
+        self.x = self.parent.x
+
+        if self.previous:
+            self.y = self.previous.y + self.previous.height
+        else:
+            self.y = self.parent.y
+
+        for word in self.children:
+            word.layout()
+
+        max_ascent = max([word.font.metrics('ascent') for word in self.children])
+        baseline = self.y + 1.25 * max_ascent
+        for word in self.children:
+            word.y = baseline - word.font.metrics('ascent')
+        max_descent = max([word.font.metrics("descent") for word in self.children])
+        self.height = 1.25 * (max_ascent + max_descent)
+
+    def paint(self, display_list):
+        for child in self.children:
+            child.paint(display_list)
+
+class TextLayout:
+    def __init__(self, node, word, parent, previous):
+        self.node = node
+        self.word = word
+        self.children = []
+        self.parent = parent
+        self.previous = previous
+
+    def layout(self):
+        weight = self.node.style['font-weight']
+        style = self.node.style['font-style']
+        if style == 'normal': style = 'roman'
+        size = int(float(self.node.style["font-size"][:-2]) * .75)
+        self.font = get_font(size, weight, style)
+
+        self.width = self.font.measure(self.word)
+        if self.previous:
+            space = self.previous.font.measure(' ')
+            self.x = self.previous.x + self.previous.width + space
+        else:
+            self.x = self.parent.x
+
+        self.height = self.font.metrics('linespace')
+
+    def paint(self, display_list):
+        color = self.node.style["color"]
+        display_list.append(
+            DrawText(self.x, self.y, self.word, self.font, color))
 
 
 def print_tree(node, indent=0):
