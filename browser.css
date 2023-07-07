@@ -4,3 +4,4 @@ i { font-style: italic; }
 b { font-weight: bold; }
 small { font-size: 90%; }
 big { font-size: 110%; }
+h1 { font-size: 300%; font-weight: bold}

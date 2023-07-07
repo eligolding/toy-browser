@@ -7,8 +7,12 @@ def request(url):
     assert scheme in ["http", "https"], \
         "Unknown scheme {}".format(scheme)
 
-    host, path = url.split('/', 1)
-    path = '/' + path
+    if '/' in url:
+        host, path = url.split('/', 1)
+        path = '/' + path
+    else:
+        host = url
+        path = '/'
 
     s = socket.socket(
         family=socket.AF_INET,
