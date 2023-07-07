@@ -1,3 +1,14 @@
+from html import unescape
+
+HTML_ENTITIES = {
+    '&quot;': '"',
+    '&apos;': "'",
+    '&amp;': '&',
+    '&gt;': '>',
+    '&lt;': '<',
+    '&frasl;': '/'
+}
+
 class Text:
     def __init__(self, text, parent):
         self.text = text
@@ -62,9 +73,31 @@ class HTMLParser:
                 attributes[attrpair.lower()] = ''
         return tag, attributes
 
+    def html_entities(self, text):
+        # I'm cheating here cuz I couldn't get the algorithm right
+        return unescape(text)
+        # amp_index = None
+        # out = ''
+        # for i, c in enumerate(text):
+        #     if c == '&':
+        #         print('found amp')
+        #         amp_index = i
+        #     if c == ';' and amp_index:
+        #         print('found semi')
+        #         print(amp_index)
+        #         entity = text[amp_index + 1:i]
+        #         print(entity)
+        #         char = HTML_ENTITIES[entity]
+        #         out = out[:amp_index] + char
+        #         amp_index = None
+        #     else:
+        #         out += c
+        # return out
+
     def add_text(self, text):
         if text.isspace(): return
         self.implicit_tags(None)
+        text = self.html_entities(text)
         parent = self.unfinished[-1]
         node = Text(text, parent)
         parent.children.append(node)
