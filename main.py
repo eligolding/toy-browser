@@ -1,5 +1,6 @@
 import tkinter
 import tkinter.font
+import urllib.parse
 from html_parser import HTMLParser, Text, Element
 from css_parser import CSSParser, style, cascade_priority
 from network import request
@@ -9,9 +10,11 @@ SCROLL_STEP = 100
 HSTEP, VSTEP = 13, 18
 CHROME_PX = 100
 
+
 class Tab:
     def __init__(self):
         self.url = None
+        self.focus = None
         self.history = []
         self.scroll = 0
         with open('browser.css') as f:
@@ -27,6 +30,8 @@ class Tab:
             self.scroll = 0
 
     def click(self, x, y):
+        self.focus = None
+
         y += self.scroll
 
         objs = [obj for obj in tree_to_list(self.document, [])
@@ -39,16 +44,39 @@ class Tab:
         while elt:
             if isinstance(elt, Text):
                 pass
+            elif elt.tag == "input":
+                self.focus = elt
+                elt.attributes["value"] = ""
+                return self.render()
+            elif elt.tag == 'button':
+                while elt:
+                    if elt.tag == 'form' and 'action' in elt.attributes:
+                        return self.submit_form(elt)
+                    else:
+                        elt = elt.parent
+                return
             elif elt.tag == "a" and "href" in elt.attributes:
                 url = resolve_url(elt.attributes["href"], self.url)
                 return self.load(url)
             elt = elt.parent
+
+    def keypress(self, char):
+        if self.focus:
+            self.focus.attributes['value'] += char
+            self.render()
 
     def draw(self, canvas):
         for cmd in self.display_list:
             if cmd.top > self.scroll + HEIGHT - CHROME_PX: continue
             if cmd.bottom + VSTEP < self.scroll: continue
             cmd.execute(self.scroll - CHROME_PX, canvas)
+        if self.focus:
+            obj = [obj for obj in tree_to_list(self.document, [])
+                   if obj.node == self.focus and isinstance(obj, InputLayout)][0]
+            text = self.focus.attributes.get('value', '')
+            x = obj.x + obj.font.measure(text)
+            y = obj.y - self.scroll + CHROME_PX
+            canvas.create_line(x, y, x, y + obj.height)
 
     def go_back(self):
         if len(self.history) > 1:
@@ -56,12 +84,12 @@ class Tab:
             back = self.history.pop()
             self.load(back)
 
-    def load(self, url):
+    def load(self, url, body=None):
         self.url = url
         self.history.append(url)
-        headers, body = request(url)
+        headers, body = request(url, body)
         self.nodes = HTMLParser(body).parse()
-        rules = self.default_style_sheet.copy()
+        self.rules = self.default_style_sheet.copy()
 
         # links = [node.attributes["href"]
         #          for node in tree_to_list(self.nodes, [])
@@ -76,11 +104,28 @@ class Tab:
         #         continue
         #     rules.extend(CSSParser(body).parse())
 
-        style(self.nodes, sorted(rules, key=cascade_priority))
+        self.render()
+
+    def render(self):
+        style(self.nodes, sorted(self.rules, key=cascade_priority))
         self.document = DocumentLayout(self.nodes)
         self.document.layout()
         self.display_list = []
         self.document.paint(self.display_list)
+
+    def submit_form(self, elt):
+        inputs = [node for node in tree_to_list(elt, []) if
+                  isinstance(node, Element) and node.tag == 'input' and 'name' in node.attributes]
+        body = ''
+        for input in inputs:
+            name = input.attributes['name']
+            value = input.attributes.get('value', '')
+            name = urllib.parse.quote(name)
+            value = urllib.parse.quote(value)
+            body += '&' + name + '=' + value
+        body = body[1:]
+        url = resolve_url(elt.attributes["action"], self.url)
+        self.load(url, body)
 
 
 class Browser:
@@ -112,8 +157,8 @@ class Browser:
         self.draw()
 
     def handle_click(self, e):
-        self.focus = None
         if e.y < CHROME_PX:
+            self.focus = None
             if 40 <= e.x < 40 + 80 * len(self.tabs) and 0 <= e.y < 40:
                 self.active_tab = int((e.x - 40) / 80)
             elif 10 <= e.x < 30 and 10 <= e.y < 30:
@@ -127,6 +172,7 @@ class Browser:
                 self.focus = "address_bar"
                 self.address_bar = ""
         else:
+            self.focus = 'content'
             self.tabs[self.active_tab].click(e.x, e.y - CHROME_PX)
         self.draw()
 
@@ -135,6 +181,9 @@ class Browser:
         if not (0x20 <= ord(e.char) < 0x7f): return
         if self.focus == 'address_bar':
             self.address_bar += e.char
+            self.draw()
+        elif self.focus == 'content':
+            self.tabs[self.active_tab].keypress(e.char)
             self.draw()
 
     def handle_enter(self, e):
@@ -180,7 +229,7 @@ class Browser:
             else:
                 url = self.tabs[self.active_tab].url
                 self.canvas.create_text(55, 55, anchor='nw', text=url,
-                                    font=buttonfont, fill="black")
+                                        font=buttonfont, fill="black")
 
             # back button
             self.canvas.create_rectangle(10, 50, 35, 90,
@@ -202,6 +251,7 @@ def tree_to_list(tree, list):
         tree_to_list(child, list)
     return list
 
+
 def resolve_url(url, current):
     if '://' in url:
         return url
@@ -216,6 +266,7 @@ def resolve_url(url, current):
             if dir.count('/') == 2: continue
             dir, _ = dir.rsplit('/', 1)
         return dir + '/' + url
+
 
 class DrawText:
     def __init__(self, x1, y1, text, font, color):
@@ -442,6 +493,7 @@ class LineLayout:
         for child in self.children:
             child.paint(display_list)
 
+
 class TextLayout:
     def __init__(self, node, word, parent, previous):
         self.node = node
@@ -518,6 +570,7 @@ class InputLayout:
         color = self.node.style["color"]
         display_list.append(
             DrawText(self.x, self.y, text, self.font, color))
+
 
 def print_tree(node, indent=0):
     print(" " * indent, node)
