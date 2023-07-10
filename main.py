@@ -304,6 +304,8 @@ def layout_mode(node):
             return "block"
         else:
             return "inline"
+    elif node.tag == "input":
+        return "inline"
     else:
         return "block"
 
@@ -318,11 +320,15 @@ class BlockLayout:
 
     def paint(self, display_list):
         bgcolor = self.node.style.get('background-color', 'transparent')
-        if bgcolor != 'transparent':
-            x2 = self.x + self.width
-            y2 = self.y + self.height
-            rect = DrawRect(self.x, self.y, x2, y2, bgcolor)
-            display_list.append(rect)
+        is_atomic = not isinstance(self.node, Text) and \
+                    (self.node.tag == "input" or self.node.tag == "button")
+
+        if not is_atomic:
+            if bgcolor != 'transparent':
+                x2 = self.x + self.width
+                y2 = self.y + self.height
+                rect = DrawRect(self.x, self.y, x2, y2, bgcolor)
+                display_list.append(rect)
 
         for x, y, text, font, color in self.display_list:
             display_list.append(DrawText(x, y, text, font, color))
@@ -358,9 +364,13 @@ class BlockLayout:
         if isinstance(node, Text):
             self.text(node)
         else:
-            # todo: reimplement br and p tags
-            for child in node.children:
-                self.recurse(child)
+            if node.tag == 'br':
+                self.new_line()
+            elif node.tag == 'input' or node.tag == 'button':
+                self.input(node)
+            else:
+                for child in node.children:
+                    self.recurse(child)
 
     def get_font(self, node):
         weight = node.style['font-weight']
@@ -382,6 +392,17 @@ class BlockLayout:
             self.previous_word = text
 
             self.cursor_x += width + font.measure(" ")
+
+    def input(self, node):
+        width = INPUT_WIDTH_PX
+        if self.cursor_x + width > self.width:
+            self.new_line()
+        line = self.children[-1]
+        input = InputLayout(node, line, self.previous_word)
+        line.children.append(input)
+        self.previous_word = input
+        font = self.get_font(node)
+        self.cursor_x += width + font.measure(" ")
 
     def new_line(self):
         self.previous_word = None
@@ -450,6 +471,53 @@ class TextLayout:
         display_list.append(
             DrawText(self.x, self.y, self.word, self.font, color))
 
+
+INPUT_WIDTH_PX = 200
+
+
+class InputLayout:
+    def __init__(self, node, parent, previous):
+        self.node = node
+        self.children = []
+        self.parent = parent
+        self.previous = previous
+
+    def layout(self):
+        weight = self.node.style['font-weight']
+        style = self.node.style['font-style']
+        if style == 'normal': style = 'roman'
+        size = int(float(self.node.style["font-size"][:-2]) * .75)
+        self.font = get_font(size, weight, style)
+
+        self.width = INPUT_WIDTH_PX
+        if self.previous:
+            space = self.previous.font.measure(' ')
+            self.x = self.previous.x + self.previous.width + space
+        else:
+            self.x = self.parent.x
+
+        self.height = self.font.metrics('linespace')
+
+    def paint(self, display_list):
+        bgcolor = self.node.style.get("background-color",
+                                      "transparent")
+        if bgcolor != "transparent":
+            x2, y2 = self.x + self.width, self.y + self.height
+            rect = DrawRect(self.x, self.y, x2, y2, bgcolor)
+            display_list.append(rect)
+
+        if self.node.tag == 'input':
+            text = self.node.attributes.get('value')
+        elif self.node.tag == 'button':
+            if len(self.node.children) == 1 and isinstance(self.node.children[0], Text):
+                text = self.node.children[0].text
+            else:
+                print('Ignoring HTML content inside button')
+                text = ''
+
+        color = self.node.style["color"]
+        display_list.append(
+            DrawText(self.x, self.y, text, self.font, color))
 
 def print_tree(node, indent=0):
     print(" " * indent, node)
