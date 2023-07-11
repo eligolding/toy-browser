@@ -1,8 +1,12 @@
 import tkinter
 import tkinter.font
 import urllib.parse
+import dukpy
+
+from helpers import tree_to_list
 from html_parser import HTMLParser, Text, Element
 from css_parser import CSSParser, style, cascade_priority
+from js_context import JSContext
 from network import request
 
 WIDTH, HEIGHT = 800, 600
@@ -45,10 +49,12 @@ class Tab:
             if isinstance(elt, Text):
                 pass
             elif elt.tag == "input":
+                if self.js.dispatch_event('click', elt): return
                 self.focus = elt
                 elt.attributes["value"] = ""
                 return self.render()
             elif elt.tag == 'button':
+                if self.js.dispatch_event('click', elt): return
                 while elt:
                     if elt.tag == 'form' and 'action' in elt.attributes:
                         return self.submit_form(elt)
@@ -56,6 +62,7 @@ class Tab:
                         elt = elt.parent
                 return
             elif elt.tag == "a" and "href" in elt.attributes:
+                if self.js.dispatch_event('click', elt): return
                 url = resolve_url(elt.attributes["href"], self.url)
                 return self.load(url)
             elt = elt.parent
@@ -63,6 +70,7 @@ class Tab:
     def keypress(self, char):
         if self.focus:
             self.focus.attributes['value'] += char
+            if self.js.dispatch_event("keydown", self.focus): return
             self.render()
 
     def draw(self, canvas):
@@ -90,6 +98,7 @@ class Tab:
         headers, body = request(url, body)
         self.nodes = HTMLParser(body).parse()
         self.rules = self.default_style_sheet.copy()
+        self.js = JSContext(self)
 
         # links = [node.attributes["href"]
         #          for node in tree_to_list(self.nodes, [])
@@ -104,6 +113,19 @@ class Tab:
         #         continue
         #     rules.extend(CSSParser(body).parse())
 
+        scripts = [node.attributes["src"] for node
+                   in tree_to_list(self.nodes, [])
+                   if isinstance(node, Element)
+                   and node.tag == "script"
+                   and "src" in node.attributes]
+
+        for script in scripts:
+            header, body = request(resolve_url(script, url))
+            try:
+                self.js.run(body)
+            except dukpy.JSRuntimeError as e:
+                print("Script", script, "crashed", e)
+
         self.render()
 
     def render(self):
@@ -114,6 +136,8 @@ class Tab:
         self.document.paint(self.display_list)
 
     def submit_form(self, elt):
+        if self.js.dispatch_event("submit", elt): return
+
         inputs = [node for node in tree_to_list(elt, []) if
                   isinstance(node, Element) and node.tag == 'input' and 'name' in node.attributes]
         body = ''
@@ -243,13 +267,6 @@ class Browser:
         self.active_tab = len(self.tabs)
         self.tabs.append(new_tab)
         self.draw()
-
-
-def tree_to_list(tree, list):
-    list.append(tree)
-    for child in tree.children:
-        tree_to_list(child, list)
-    return list
 
 
 def resolve_url(url, current):

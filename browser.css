@@ -5,6 +5,7 @@ b { font-weight: bold; }
 small { font-size: 90%; }
 big { font-size: 110%; }
 h1 { font-size: 300%; font-weight: bold}
+label { font-weight: bold; color: red; }
 input {
     font-size: 16px; font-weight: normal; font-style: normal;
     background-color: lightblue;
