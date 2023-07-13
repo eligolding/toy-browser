@@ -17,7 +17,7 @@ def parse_url(url):
     return scheme, host, "/" + path
 
 
-def request(url, payload=None):
+def request(url, top_level_url, payload=None):
     (scheme, host, path) = parse_url(url)
     assert scheme in ["http", "https"], \
         "Unknown scheme {}".format(scheme)
@@ -48,8 +48,15 @@ def request(url, payload=None):
         body += 'Content-Length: {}\r\n'.format(length)
 
     if host in COOKIE_JAR:
-        cookie = COOKIE_JAR[host]
-        body += 'Cookie: {}\r\n'.format(cookie)
+        cookie, params = COOKIE_JAR[host]
+        allow_cookie = True
+        if top_level_url and params.get('samesite', 'none') == 'lax':
+            _, _, top_level_host, _ = top_level_url.split("/", 3)
+            if ':' in top_level_host:
+                top_level_host, _ = top_level_host.split(":", 1)
+            allow_cookie = (host == top_level_host or method == "GET")
+        if allow_cookie:
+            body += 'Cookie: {}\r\n'.format(cookie)
 
     body += "\r\n" + (payload if payload else "")
 
@@ -72,9 +79,14 @@ def request(url, payload=None):
     assert "content-encoding" not in headers
 
     if 'set-cookie' in headers:
-        kv = headers['set-cookie']
-        COOKIE_JAR[host] = kv
-
+        cookie = headers['set-cookie']
+        params = {}
+        if ';' in cookie:
+            cookie, rest = cookie.split(';', 1)
+            for param_pair in rest.split(';'):
+                key, value = param_pair.strip().split('=', 1)
+                params[key.lower()] = value.lower()
+        COOKIE_JAR[host] = (cookie, params)
 
     body = response.read()
     s.close()

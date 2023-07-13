@@ -60,7 +60,7 @@ class JSContext:
         full_url = resolve_url(url, self.tab.url)
         if url_origin(full_url) != url_origin(self.tab.url):
             raise Exception("Cross-origin XHR request not allowed")
-        headers, out = request(full_url, body)
+        headers, out = request(full_url, self.tab.url, body)
         return out
 
     def get_handle(self, elt):
