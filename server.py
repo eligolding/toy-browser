@@ -1,3 +1,4 @@
+import html
 import socket
 import urllib.parse
 import random
@@ -38,8 +39,9 @@ def show_comments(session):
     else:
         out += "<a href=/login>Sign in to write in the guest book</a>"
     for entry, who in ENTRIES:
-        out += "<p>" + entry + "\n"
-        out += "<i>by " + who + "</i></p>"
+        out += "<p>" + html.escape(entry) + "\n"
+        out += "<i>by " + html.escape(who) + "</i></p>"
+    out += "<script src=/comment.js></script>"
     return out
 
 
@@ -80,6 +82,9 @@ def do_request(session, method, url, headers, body):
         params = form_decode(body)
         add_entry(session, params)
         return "200 OK", show_comments(session)
+    elif method == "GET" and url == "/comment.js":
+        with open("comment.js") as f:
+            return "200 OK", f.read()
     else:
         return "404 Not Found", not_found(url, method)
 
@@ -138,6 +143,8 @@ def handle_connection(conx):
     if 'cookie' not in headers:
         template = "Set-Cookie: token={}; SameSite=Lax\r\n"
         response += template.format(token)
+    csp = "default-src http://127.0.0.1:8000"
+    response += "Content-Security-Policy: {}\r\n".format(csp)
     response += "\r\n" + body
     conx.send(response.encode('utf8'))
     conx.close()

@@ -7,7 +7,7 @@ from helpers import tree_to_list
 from html_parser import HTMLParser, Text, Element
 from css_parser import CSSParser, style, cascade_priority
 from js_context import JSContext
-from network import request, resolve_url
+from network import request, resolve_url, url_origin
 
 WIDTH, HEIGHT = 800, 600
 SCROLL_STEP = 100
@@ -100,6 +100,12 @@ class Tab:
         self.rules = self.default_style_sheet.copy()
         self.js = JSContext(self)
 
+        self.allowed_origins = None
+        if "content-security-policy" in headers:
+            csp = headers['content-security-policy'].split()
+            if len(csp) > 0 and csp[0] == 'default-src':
+                self.allowed_origins = csp[1:]
+
         # links = [node.attributes["href"]
         #          for node in tree_to_list(self.nodes, [])
         #          if isinstance(node, Element)
@@ -108,7 +114,11 @@ class Tab:
         #          and node.attributes.get("rel") == "stylesheet"]
         # for link in links:
         #     try:
-        #         header, body = request(resolve_url(link, url), url)
+    #             link_url = resolve_url(link, url)
+    #             if not self.allowed_request(link_url):
+        #             print("Blocked link", link, "due to CSP")
+        #             continue
+        #         header, body = request(link_url, url)
         #     except:
         #         continue
         #     rules.extend(CSSParser(body).parse())
@@ -120,13 +130,20 @@ class Tab:
                    and "src" in node.attributes]
 
         for script in scripts:
-            header, body = request(resolve_url(script, url), url)
+            script_url = resolve_url(script, url)
+            if not self.allowed_request(script_url):
+                print("Blocked script", script, "due to CSP")
+                continue
+            header, body = request(script_url, url)
             try:
                 self.js.run(body)
             except dukpy.JSRuntimeError as e:
                 print("Script", script, "crashed", e)
 
         self.render()
+
+    def allowed_request(self, url):
+        return self.allowed_origins == None or url_origin(url) in self.allowed_origins
 
     def render(self):
         style(self.nodes, sorted(self.rules, key=cascade_priority))
