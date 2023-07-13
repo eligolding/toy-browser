@@ -3,6 +3,7 @@ import dukpy
 from css_parser import CSSParser
 from helpers import tree_to_list
 from html_parser import HTMLParser
+from network import request, url_origin, resolve_url
 
 EVENT_DISPATCH_CODE = "new Node(dukpy.handle).dispatchEvent(new Event(dukpy.type))"
 
@@ -22,6 +23,8 @@ class JSContext:
                                     self.getAttribute)
         self.interp.export_function("innerHTML_set",
                                     self.innerHTML_set)
+        self.interp.export_function("XMLHttpRequest_send",
+                                    self.XMLHttpRequest_send)
 
         with open("runtime.js") as f:
             self.interp.evaljs(f.read())
@@ -52,6 +55,13 @@ class JSContext:
         for child in elt.children:
             child.parent = elt
         self.tab.render()
+
+    def XMLHttpRequest_send(self, method, url, body):
+        full_url = resolve_url(url, self.tab.url)
+        if url_origin(full_url) != url_origin(self.tab.url):
+            raise Exception("Cross-origin XHR request not allowed")
+        headers, out = request(full_url, body)
+        return out
 
     def get_handle(self, elt):
         if elt not in self.node_to_handle:

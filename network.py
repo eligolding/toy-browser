@@ -4,17 +4,23 @@ import ssl
 COOKIE_JAR = {}
 
 
-def request(url, payload=None):
+def url_origin(url):
+    (scheme, host, path) = parse_url(url)
+    return scheme + "://" + host
+
+
+def parse_url(url):
     scheme, url = url.split("://", 1)
+    if "/" not in url:
+        url = url + "/"
+    host, path = url.split("/", 1)
+    return scheme, host, "/" + path
+
+
+def request(url, payload=None):
+    (scheme, host, path) = parse_url(url)
     assert scheme in ["http", "https"], \
         "Unknown scheme {}".format(scheme)
-
-    if '/' in url:
-        host, path = url.split('/', 1)
-        path = '/' + path
-    else:
-        host = url
-        path = '/'
 
     s = socket.socket(
         family=socket.AF_INET,
@@ -74,3 +80,19 @@ def request(url, payload=None):
     s.close()
 
     return headers, body
+
+
+def resolve_url(url, current):
+    if '://' in url:
+        return url
+    elif url.startswith('/'):
+        scheme, hostpath = current.split('://', 1)
+        host, oldpath = hostpath.split('/', 1)
+        return scheme + "://" + host + url
+    else:
+        dir, _ = current.rsplit('/', 1)
+        while url.startswith('../'):
+            url = url[3:]
+            if dir.count('/') == 2: continue
+            dir, _ = dir.rsplit('/', 1)
+        return dir + '/' + url

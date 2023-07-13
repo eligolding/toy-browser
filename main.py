@@ -7,7 +7,7 @@ from helpers import tree_to_list
 from html_parser import HTMLParser, Text, Element
 from css_parser import CSSParser, style, cascade_priority
 from js_context import JSContext
-from network import request
+from network import request, resolve_url
 
 WIDTH, HEIGHT = 800, 600
 SCROLL_STEP = 100
@@ -267,22 +267,6 @@ class Browser:
         self.active_tab = len(self.tabs)
         self.tabs.append(new_tab)
         self.draw()
-
-
-def resolve_url(url, current):
-    if '://' in url:
-        return url
-    elif url.startswith('/'):
-        scheme, hostpath = current.split('://', 1)
-        host, oldpath = hostpath.split('/', 1)
-        return scheme + "://" + host + url
-    else:
-        dir, _ = current.rsplit('/', 1)
-        while url.startswith('../'):
-            url = url[3:]
-            if dir.count('/') == 2: continue
-            dir, _ = dir.rsplit('/', 1)
-        return dir + '/' + url
 
 
 class DrawText:
