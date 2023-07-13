@@ -1,6 +1,8 @@
 import socket
 import ssl
 
+COOKIE_JAR = {}
+
 
 def request(url, payload=None):
     scheme, url = url.split("://", 1)
@@ -39,6 +41,10 @@ def request(url, payload=None):
         length = len(payload.encode('utf8'))
         body += 'Content-Length: {}\r\n'.format(length)
 
+    if host in COOKIE_JAR:
+        cookie = COOKIE_JAR[host]
+        body += 'Cookie: {}\r\n'.format(cookie)
+
     body += "\r\n" + (payload if payload else "")
 
     s.send(body.encode('utf8'))
@@ -58,6 +64,11 @@ def request(url, payload=None):
 
     assert "transfer-encoding" not in headers
     assert "content-encoding" not in headers
+
+    if 'set-cookie' in headers:
+        kv = headers['set-cookie']
+        COOKIE_JAR[host] = kv
+
 
     body = response.read()
     s.close()
